@@ -1,0 +1,134 @@
+#### Final####
+# Install required packages
+!pip install opencv-python dlib pandas scikit-learn tensorflow deepface
+
+# Import required libraries
+import cv2
+import dlib
+import numpy as np
+import pandas as pd
+from sklearn.metrics.pairwise import cosine_similarity
+from deepface import DeepFace
+from google.colab import output
+from IPython.display import display, Javascript
+from PIL import Image
+import io
+import base64
+
+# Load movie dataset
+movies = pd.read_csv('/content/movies.csv', encoding='utf-8')
+
+# Check the dataset structure
+print(movies.columns)
+print(movies.head())
+
+# Print unique genres to verify the dataset
+#print("Unique genres in the dataset:", movies['genre'].unique())
+
+# Define emotion-movie mapping
+emotion_to_genres = {
+    "happy": "Comedy",
+    "surprised": "Adventure",
+    "neutral": "Drama",
+    "sad": "Romance",
+    "angry":"Action",
+    "fear" : "Thriller"
+    
+}
+
+# Function to recommend movies
+def recommend_movies(emotion, movies_df):
+    genres = emotion_to_genres.get(emotion, "Drama")  # Default to Drama if emotion not mapped
+    print(f"Emotion: {emotion}, Mapped Genres: {genres}")  # Debugging line
+    
+    # Ensure that the 'genres' column exists
+    if 'genres' not in movies_df.columns:
+        print("Error: 'genre' column not found in movies dataset.")
+        return pd.DataFrame()
+    
+    # Filter movies based on genre matching
+    recommendations = movies_df[movies_df['genres'].str.contains(genres, case=False, na=False)]
+    
+    print(f"Recommendations Found: {len(recommendations)}")  # Debugging line
+    print(recommendations)  # Debugging line to see the filtered DataFrame
+    
+    if recommendations.empty:
+        print(f"No movies found for genres: {genres}")
+        return pd.DataFrame()
+    
+    return recommendations[['title']].head(5)
+
+# Function to capture image
+def capture_image():
+    js = """
+    async function takePhoto() {
+      const video = document.createElement('video');
+      document.body.appendChild(video);
+
+      const stream = await navigator.mediaDevices.getUserMedia({video: true});
+      video.srcObject = stream;
+      await video.play();
+
+      const canvas = document.createElement('canvas');
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+      canvas.getContext('2d').drawImage(video, 0, 0);
+      stream.getTracks().forEach(track => track.stop());
+      video.remove();
+
+      return canvas.toDataURL('image/png');  // Capture image in base64
+    }
+    takePhoto().then(data => google.colab.kernel.invokeFunction('notebook.take_photo', [data], {}));
+    """
+    display(Javascript(js))
+
+# Function to save and analyze photo
+def save_photo(data):
+    # Decode the base64 image data
+    image_data = base64.b64decode(data.split(',')[1])
+    
+    # Save the image as a file
+    with open('photo.png', 'wb') as file:
+        file.write(image_data)
+    
+    # Open the image using PIL
+    img = Image.open(io.BytesIO(image_data))
+    
+    # Convert the PIL image to a numpy array (OpenCV format)
+    img_np = np.array(img)
+    
+    # Convert RGB to BGR (OpenCV uses BGR format)
+    img_np = cv2.cvtColor(img_np, cv2.COLOR_RGB2BGR)
+    
+    display(img)
+    
+    # Use DeepFace to analyze emotion from the captured image
+    try:
+        # Get the analysis result
+        analysis = DeepFace.analyze(img_np, actions=['emotion'], enforce_detection=False)
+        
+        # Check if multiple faces are detected and extract the dominant emotion
+        if isinstance(analysis, list):
+            dominant_emotion = analysis[0]['dominant_emotion']  # For the first detected face
+        else:
+            dominant_emotion = analysis['dominant_emotion']  # For a single face
+        
+        print(f"Detected Emotion: {dominant_emotion}")
+        
+        # Recommend movies based on detected emotion
+        recommended_movies = recommend_movies(dominant_emotion, movies)
+        
+        if not recommended_movies.empty:
+            print("\nRecommended Movies:")
+            print(recommended_movies)
+        else:
+            print("No movies found for the detected emotion.")
+    
+    except Exception as e:
+        print("Error in emotion detection:", e)
+
+# Start video capture to allow user to capture the image and recommend movie
+capture_image()
+
+# Register callback to capture photo and recommend movie
+output.register_callback
